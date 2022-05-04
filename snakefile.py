@@ -3,8 +3,11 @@ SRA,FRR = glob_wildcards("rawReads/{sra}_{frr}.fastq.gz")
 rule all:
     input:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
-        expand("multiqc_report.html"),
+#        expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
+        expand("genome/GRCh38.primary_assembly.genome.fa"),
+        expand("genome/gencode.v29.annotation.gtf"),
+        expand("starAlign/{sra}Aligned.sortedByCoord.out.bam", sra=SRA),
         
         
 rule rawFastqc:
@@ -22,15 +25,15 @@ rule rawFastqc:
         fastqc {input.rawread} --threads {threads} -o {params.path}
         """
         
-rule multiqc:
-    input:
-        rawqc="rawQC",
-    output:
-       "multiqc_report.html"
-    shell:
-        """
-        multiqc rawQC
-        """
+#rule multiqc:
+#    input:
+#        rawqc="rawQC",
+#    output:
+#       "multiqc_report.html"
+#    shell:
+#        """
+#        multiqc rawQC
+#        """
         
 rule fastp:
      input:
@@ -48,3 +51,48 @@ rule fastp:
          """
       
       
+rule get_genome_fa:
+    "Download Genome sequence, primary assembly (GRCh38) "
+    output:
+        fa = "genome/GRCh38.primary_assembly.genome.fa"
+    shell:
+        "cd genome && wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_29/GRCh38.primary_assembly.genome.fa.gz && gunzip GRCh38.primary_assembly.genome.fa.gz"
+
+
+rule get_genome_gtf:
+    "Download gtf annotations corresponding to our genome"
+    output:
+        gtf = "genome/gencode.v29.annotation.gtf"
+    shell:
+        "cd genome && wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_29/gencode.v29.annotation.gtf.gz && gunzip gencode.v29.annotation.gtf.gz"
+
+
+rule star_index:
+    input:
+        gtf = rules.get_genome_gtf.output.gtf,
+        fa = rules.get_genome_fa.output.fa       
+    output:
+        dir = directory("starIndex"),
+    threads:
+        16
+    shell:
+        "mkdir {output.dir} && STAR  --runMode genomeGenerate --runThreadN {threads} --genomeDir {output.dir} --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} "
+
+rule star_align:
+    input:
+        index = rules.star_index.output.dir,
+        read1 = rules.fastp.output.read1,
+        read2 = rules.fastp.output.read2
+    output:
+        bam = "starAlign/{sra}Aligned.sortedByCoord.out.bam",
+        log = "starAlign/{sra}Log.final.out"
+    log:
+        out = "starAlign/{sra}_star.out",
+        err = "starAlign/{sra}_star.err"
+    params:
+        prefix = "starAlign/{sra}"       
+    threads:
+        16
+    shell:
+        "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --limitBAMsortRAM 50000000000 --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
+
