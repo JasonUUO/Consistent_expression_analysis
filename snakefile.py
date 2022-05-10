@@ -3,7 +3,7 @@ SRA,FRR = glob_wildcards("rawReads/{sra}_{frr}.fastq.gz")
 rule all:
     input:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
-#        expand("multiqc_report.html"),
+        expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
         expand("genome/GRCh38.primary_assembly.genome.fa"),
         expand("genome/gencode.v29.annotation.gtf"),
@@ -25,15 +25,15 @@ rule rawFastqc:
         fastqc {input.rawread} --threads {threads} -o {params.path}
         """
         
-#rule multiqc:
-#    input:
-#        rawqc="rawQC",
-#    output:
-#       "multiqc_report.html"
-#    shell:
-#        """
-#        multiqc rawQC
-#        """
+rule multiqc:
+    input:
+        rawqc=expand("rawQC/{sra}_{frr}_fastqc.zip",sra=SRA ,frr=FRR),
+    output:
+       "multiqc_report.html"
+    shell:
+        """
+        multiqc {input.rawQC}
+        """
         
 rule fastp:
      input:
