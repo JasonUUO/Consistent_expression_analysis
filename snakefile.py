@@ -5,8 +5,8 @@ rule all:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
         expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
-        expand("genome/GRCh38.primary_assembly.genome.fa"),
-        expand("genome/gencode.v29.annotation.gtf"),
+        expand("genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"),
+        expand("genome/Mus_musculus.GRCm39.106.gtf"),
         expand("starAlign/{sra}Aligned.sortedByCoord.out.bam", sra=SRA),
         
         
@@ -52,32 +52,37 @@ rule fastp:
       
       
 rule get_genome_fa:
-    "Download Genome sequence, primary assembly (GRCh38) "
+    "Download Genome sequence, Mus Musculus primary assembly (GRCm39)"
     output:
-        fa = "genome/GRCh38.primary_assembly.genome.fa"
+        fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
     shell:
-        "cd genome && wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_29/GRCh38.primary_assembly.genome.fa.gz && gunzip GRCh38.primary_assembly.genome.fa.gz"
+        "cd genome"
+        " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz "
+        " && gunzip -k Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
 
 
 rule get_genome_gtf:
     "Download gtf annotations corresponding to our genome"
     output:
-        gtf = "genome/gencode.v29.annotation.gtf"
+        gtf = "genome/Mus_musculus.GRCm39.106.gtf"
     shell:
-        "cd genome && wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_29/gencode.v29.annotation.gtf.gz && gunzip gencode.v29.annotation.gtf.gz"
+        "cd genome && " 
+        " wget ftp://ftp.ensembl.org/pub/release-106/gtf/mus_musculus/Mus_musculus.GRCm39.106.gtf.gz "
+        " && gunzip -k Mus_musculus.GRCm39.106.gtf.gz"
 
 
 rule star_index:
     input:
-        gtf = rules.get_genome_gtf.output.gtf,
+        gtf = rules.get_genome_gtf.output.gtf ,
         fa = rules.get_genome_fa.output.fa       
     output:
-        dir = directory("starIndex"),
+        dir = "starIndex",
     threads:
-        16
+        32
     shell:
-        "mkdir {output.dir} && STAR  --runMode genomeGenerate --runThreadN {threads} --genomeDir {output.dir} --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} "
-
+        " STAR --runMode genomeGenerate --runThreadN {threads} --genomeDir {output.dir} --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} "
+        " && rm genome/Mus_musculus.GRCm39.106.gtf"
+        " && rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
 rule star_align:
     input:
         index = rules.star_index.output.dir,
@@ -92,7 +97,7 @@ rule star_align:
     params:
         prefix = "starAlign/{sra}"       
     threads:
-        16
+        32
     shell:
-        "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --limitBAMsortRAM 50000000000 --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
+        "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
 
