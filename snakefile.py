@@ -8,6 +8,8 @@ rule all:
         expand("genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"),
         expand("genome/Mus_musculus.GRCm39.106.gtf"),
         expand("starAlign/{sra}Aligned.sortedByCoord.out.bam", sra=SRA),
+        expand("rawcounts/rawcounts.tsv",)
+        expand("AML_gene_lists.csv",)
         
         
 rule rawFastqc:
@@ -101,7 +103,7 @@ rule star_align:
     shell:
         "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
 
-        rule bamtools_filter_json:
+rule bamtools_filter_json:
     input:
         "{sample}.bam"
     output:
@@ -124,4 +126,24 @@ region_param = ""
 
 if region and region is not None:
     region_param = ' -region "' + region + '"'
+        
+rule htseq_count:
+    input: 
+        alignment = rules.star_align.output.bam 
+        gtf_1 = rules.get_genome_gtf.output.gtf 
+    output:
+        raw_count = "rawcounts/rawcounts.csv"
+    log:
+        out = "rawcounts/rawcounts.out"
+        err = "rawcounts/rawcounts.err"
+    shell:
+        "htseq-count {input.alignment} {input.gtf_1} -i gene_id --add-chromosome-info -m union"
+
+rule normalise_and_DE_analysis:
+    input:
+        rules.htseq_count.output.raw_count
+    output:
+        "AML_gene_lists.csv"
+    script:
+        "Analysis.Rmd"
         

@@ -1,0 +1,210 @@
+Setting the working Directory
+```{r}
+#setwd("C:/Aniket/human_genes")
+```
+
+Installing DESeq2 from Bioconductor
+
+```{r}
+BiocManager::install("DESeq2")
+```
+Loading the packages that are required for our analysis. 
+```{r}
+library("DESeq2")
+library("tidyverse")#The tidyverse will be used to wrangle gene expression tables and create visualizations.
+```
+
+
+Reading in raw_counts.csv into R, and to look at the structure of the data.
+We can see that there are 60676 rows and 8 columns to the data, in which each row is a gene and each column corresponds to the reads per gene for each sample.
+```{r}
+data <- read.csv("raw_counts.csv", header = T, row.names = "ensembl_id")
+data <- data[,sort(colnames(data))]
+head(data)
+dim(data)
+
+```
+
+
+Quantifying the total reads per sample by taking the column sums.
+```{r}
+colSums(data)
+```
+Creating the DESeq2 object
+
+To construct the colData, we first define the groups and how many samples each group has.
+
+```{r}
+condition <- c(rep("LNCAP_Hypoxia", 2), rep("LNCAP_Normoxia", 2), rep("PC3_Hypoxia", 2), rep("PC3_Normoxia", 2))
+```
+
+```{r}
+# assign replicates to each sample name to construct colData
+my_colData <- as.data.frame(condition)
+rownames(my_colData) <- colnames(data)
+my_colData
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = data,
+                              colData = my_colData,
+                              design = ~condition)
+```
+
+This can then be processed using the function DESeq(), which will perform differential expression analysis based on a negative binomial distribution. From the documentation, this function will perform:
+
+estimation of size factors: estimateSizeFactors
+estimation of dispersion: estimateDispersions
+Negative Binomial GLM fitting and Wald statistics: nbinomWaldTest
+
+```{r}
+dds <- DESeq(dds)
+```
+
+Using dds object to get information
+
+```{r}
+dds
+```
+The dds object using @ and $. For example, we can find the raw counts data this way:
+```{r}
+head(dds@assays@data$counts)
+```
+
+If you want the normalized counts instead, we set normalized = T
+
+```{r}
+normalized_counts <- counts(dds, normalized = T)
+
+head(normalized_counts)
+```
+
+
+
+Annotating the file from BioMart
+
+```{r}
+annotation <- read.csv("GRCh38.p13_annotation.csv", header = T, stringsAsFactors = F)
+head(annotation)
+```
+
+We observe that there are three columns corresponding to the annotations that we selected. To map the gene names to another dataset, we can join two tables based on the Ensembl IDs using a join function from the tidyverse.
+
+```{r}
+normalized_counts <- rownames_to_column(as.data.frame(normalized_counts), var = "ensembl_id")
+annotated_data <- right_join(annotation, normalized_counts, by = c("Gene.stable.ID" = "ensembl_id"))
+head(annotated_data)
+```
+
+```{r}
+write.csv(annotated_data, file = "gene_annotated_normalized_counts.csv")
+```
+
+Visualizations for sample variability
+
+```{r}
+vsd <- vst(dds, blind = TRUE)
+```
+
+```{r}
+install.packages("ggrepel")
+```
+
+1. PCA Plot
+
+```{r}
+plot_PCA = function (vsd.obj) {
+  pcaData <- plotPCA(vsd.obj,  intgroup = c("condition"), returnData = T)
+  percentVar <- round(100 * attr(pcaData, "percentVar"))
+  ggplot(pcaData, aes(PC1, PC2, color=condition)) +
+    geom_point(size=3) +
+    labs(x = paste0("PC1: ",percentVar[1],"% variance"),
+         y = paste0("PC2: ",percentVar[2],"% variance"),
+         title = "PCA Plot colored by condition") +
+    ggrepel::geom_text_repel(aes(label = name), color = "black")
+}
+plot_PCA(vsd)
+```
+
+
+```{r}
+install.packages("pheatmap")
+```
+
+2. Distance Plot
+```{r}
+plotDists = function (vsd.obj) {
+  sampleDists <- dist(t(assay(vsd.obj)))
+  sampleDistMatrix <- as.matrix( sampleDists )
+  rownames(sampleDistMatrix) <- paste( vsd.obj$condition )
+  colors <- colorRampPalette( rev(RColorBrewer::brewer.pal(9, "Blues")) )(255)
+  pheatmap::pheatmap(sampleDistMatrix,
+           clustering_distance_rows = sampleDists,
+           clustering_distance_cols = sampleDists,
+           col = colors)
+}
+
+```
+
+```{r}
+plotDists(vsd)
+```
+
+3.Variable Genes Heatmap
+
+```{r}
+variable_gene_heatmap <- function (vsd.obj, num_genes = 500, annotation, title = "") {
+  brewer_palette <- "RdBu"
+  # Ramp the color in order to get the scale.
+  ramp <- colorRampPalette( RColorBrewer::brewer.pal(11, brewer_palette))
+  mr <- ramp(256)[256:1]
+  # get the stabilized counts from the vsd object
+  stabilized_counts <- assay(vsd.obj)
+  # calculate the variances by row(gene) to find out which genes are the most variable across the samples.
+  row_variances <- rowVars(stabilized_counts)
+  # get the top most variable genes
+  top_variable_genes <- stabilized_counts[order(row_variances, decreasing=T)[1:num_genes],]
+  # subtract out the means from each row, leaving the variances for each gene
+  top_variable_genes <- top_variable_genes - rowMeans(top_variable_genes, na.rm=T)
+  # replace the ensembl ids with the gene names
+  gene_names <- annotation$Gene.name[match(rownames(top_variable_genes), annotation$Gene.stable.ID)]
+  rownames(top_variable_genes) <- gene_names
+  # reconstruct colData without sizeFactors for heatmap labeling
+  coldata <- as.data.frame(vsd.obj@colData)
+  coldata$sizeFactor <- NULL
+  # draw heatmap using pheatmap
+  pheatmap::pheatmap(top_variable_genes, color = mr, annotation_col = coldata, fontsize_col = 8, fontsize_row = 250/num_genes, border_color = NA, main = title)
+}
+
+variable_gene_heatmap(vsd, num_genes = 40, annotation = annotation)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-
