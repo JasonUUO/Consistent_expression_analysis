@@ -101,3 +101,27 @@ rule star_align:
     shell:
         "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
 
+        rule bamtools_filter_json:
+    input:
+        "{sample}.bam"
+    output:
+        "filtered/{sample}.bam"
+    params:
+        json="filtering-rules.json",
+        region="" # optional parameter for defining a specific region, e.g. "chr1:500..chr3:750"
+    log:
+        "logs/bamtools/filtered/{sample}.log"
+    wrapper:
+        "v1.5.0/bio/bamtools/filter_json"
+
+        
+from snakemake.shell import shell
+
+log = snakemake.log_fmt_shell(stdout=False, stderr=True)
+
+region = snakemake.params.get("region")
+region_param = ""
+
+if region and region is not None:
+    region_param = ' -region "' + region + '"'
+        
