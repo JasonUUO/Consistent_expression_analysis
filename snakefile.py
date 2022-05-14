@@ -54,55 +54,44 @@ rule fastp:
       
       
 rule get_genome_fa:
-    "Download Genome sequence, Mus Musculus primary assembly (GRCm39)"
+    "Downloading Genome sequence, Mus Musculus primary assembly (GRCm39)"
     output:
-        fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
+        fazip = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
     shell:
         "cd genome"
-        " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz "
-        " && gunzip -k Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
+        " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
 
-
-rule get_genome_gtf:
-    "Download gtf annotations corresponding to our genome"
-    output:
-        gtf = "genome/Mus_musculus.GRCm39.106.gtf"
-    shell:
-        "cd genome && " 
-        " wget ftp://ftp.ensembl.org/pub/release-106/gtf/mus_musculus/Mus_musculus.GRCm39.106.gtf.gz "
-        " && gunzip -k Mus_musculus.GRCm39.106.gtf.gz"
-
-
-rule star_index:
+rule bwa_index:
+    "Generating index with BWA"
     input:
-        gtf = rules.get_genome_gtf.output.gtf ,
-        fa = rules.get_genome_fa.output.fa       
+        fazip = rules.get_genome_fa.output.fazip
     output:
-        dir = "starIndex",
-    threads:
+        #fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
+        amb = "genome/ref.amb", 
+        ann = "genome/ref.ann", 
+        bwt = "genome/ref.bwt", 
+        pac = "genome/ref.pac", 
+        sa = "genome/ref.sa"
+    shell:
+        "gunzip -k {input.fazip} "
+        "&& bwa index -a bwtsw {input.fazip} -p genome/ref "
+        "&& rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa" 
+    
+
+rule mem_bwa:
+    "Aligning with BWA MEM"
+    input:
+        index = rules.bwa_index.output,
+        fastq1 = rules.fastp.output.read1,
+        fastq2 = rules.fastp.output.read2
+    output:
+        bam = "aligned/{sra}.bam"
+    threads: 
         32
     shell:
-        " STAR --runMode genomeGenerate --runThreadN {threads} --genomeDir {output.dir} --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} "
-        " && rm genome/Mus_musculus.GRCm39.106.gtf"
-        " && rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
-rule star_align:
-    input:
-        index = rules.star_index.output.dir,
-        read1 = rules.fastp.output.read1,
-        read2 = rules.fastp.output.read2
-    output:
-        bam = "starAlign/{sra}Aligned.sortedByCoord.out.bam",
-        log = "starAlign/{sra}Log.final.out"
-    log:
-        out = "starAlign/{sra}_star.out",
-        err = "starAlign/{sra}_star.err"
-    params:
-        prefix = "starAlign/{sra}"       
-    threads:
-        32
-    shell:
-        "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
+        "bwa mem -t {threads} genome/ref {input.fastq1} {input.fastq2} | samtools sort -@ {threads} -o {output.bam}"
 
+        
 rule bamtools_filter_json:
     input:
         "{sample}.bam"
