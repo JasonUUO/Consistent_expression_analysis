@@ -5,9 +5,11 @@ rule all:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
         expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
-        expand("genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"),
-        expand("genome/Mus_musculus.GRCm39.106.gtf"),
-        expand("starAlign/{sra}Aligned.sortedByCoord.out.bam", sra=SRA),
+        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
+        expand("aligned/{sra}.bam", sra=SRA),
+        expand("logs/{sra}_sum.txt", sra=SRA),
+        expand("logs/{sra}_met.txt", sra=SRA),
+        ["index."  + str(i) + ".ht2" for i in range(1,9)],
         expand("rawcounts/rawcounts.tsv",)
         expand("AML_gene_lists.csv",)
         
@@ -54,55 +56,44 @@ rule fastp:
       
       
 rule get_genome_fa:
-    "Download Genome sequence, Mus Musculus primary assembly (GRCm39)"
+    "Downloading Genome sequence, Mus Musculus primary assembly (GRCm39)"
     output:
         fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
     shell:
         "cd genome"
-        " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz "
-        " && gunzip -k Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
+        " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
+        " && gunzip Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz "
 
-
-rule get_genome_gtf:
-    "Download gtf annotations corresponding to our genome"
-    output:
-        gtf = "genome/Mus_musculus.GRCm39.106.gtf"
-    shell:
-        "cd genome && " 
-        " wget ftp://ftp.ensembl.org/pub/release-106/gtf/mus_musculus/Mus_musculus.GRCm39.106.gtf.gz "
-        " && gunzip -k Mus_musculus.GRCm39.106.gtf.gz"
-
-
-rule star_index:
+rule index:
     input:
-        gtf = rules.get_genome_gtf.output.gtf ,
-        fa = rules.get_genome_fa.output.fa       
+        fa = rules.get_genome_fa.output.fa
     output:
-        dir = "starIndex",
+        dir = ["index."  + str(i) + ".ht2" for i in range(1,9)]
+    message:
+        "Indexing genome"
     threads:
-        32
+        16
     shell:
-        " STAR --runMode genomeGenerate --runThreadN {threads} --genomeDir {output.dir} --genomeFastaFiles {input.fa} --sjdbGTFfile {input.gtf} "
-        " && rm genome/Mus_musculus.GRCm39.106.gtf"
-        " && rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
-rule star_align:
-    input:
-        index = rules.star_index.output.dir,
-        read1 = rules.fastp.output.read1,
-        read2 = rules.fastp.output.read2
-    output:
-        bam = "starAlign/{sra}Aligned.sortedByCoord.out.bam",
-        log = "starAlign/{sra}Log.final.out"
-    log:
-        out = "starAlign/{sra}_star.out",
-        err = "starAlign/{sra}_star.err"
-    params:
-        prefix = "starAlign/{sra}"       
-    threads:
-        32
-    shell:
-        "STAR --runThreadN {threads} --genomeDir {input.index} --genomeLoad LoadAndKeep --readFilesIn {input.read1} {input.read2} --outFilterIntronMotifs RemoveNoncanonical --outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate --outTmpDir /tmp/TMPDIR/{wildcards.sra} 1> {log.out} 2> {log.err} "
+        " hisat2-build -p {threads} {input.fa} index --quiet"    
 
+rule hisat_align:
+    input:
+        fastq1 = rules.fastp.output.read1,
+        fastq2 = rules.fastp.output.read2,
+        index = rules.index.output.dir
+    output:
+        bams  = "aligned/{sra}.bam",
+        sum   = "logs/{sra}_sum.txt",
+        met   = "logs/{sra}_met.txt"
+    message:
+        "Alligning reads to genome to bam files."
+    threads: 
+        16
+    shell:
+        "hisat2 -p {threads} --summary-file {output.sum} --met-file {output.met} -x index \
+        -1 {input.fastq1} -2 {input.fastq2} | samtools view -Sb -F 4 -o {output.bams}"
+
+        
 rule bamtools_filter_json:
     input:
         "{sample}.bam"
