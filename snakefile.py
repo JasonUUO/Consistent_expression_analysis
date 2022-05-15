@@ -5,9 +5,12 @@ rule all:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
         expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
-        expand("genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"),
-        expand("genome/Mus_musculus.GRCm39.106.gtf"),
-        expand("starAlign/{sra}Aligned.sortedByCoord.out.bam", sra=SRA),
+        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
+        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
+        expand("aligned/{sra}.bam", sra=SRA),
+        expand("logs/{sra}_sum.txt", sra=SRA),
+        expand("logs/{sra}_met.txt", sra=SRA),
+        ["index."  + str(i) + ".ht2" for i in range(1,9)]
         expand("rawcounts/rawcounts.tsv",)
         expand("AML_gene_lists.csv",)
         
@@ -56,40 +59,43 @@ rule fastp:
 rule get_genome_fa:
     "Downloading Genome sequence, Mus Musculus primary assembly (GRCm39)"
     output:
-        fazip = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
+        fazip = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz",
+        fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
     shell:
         "cd genome"
         " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
+        " && gunzip -k {output.fazip} "
 
-rule bwa_index:
-    "Generating index with BWA"
+rule index:
     input:
-        fazip = rules.get_genome_fa.output.fazip
+        fa = rules.get_genome_fa.output.fa
     output:
-        #fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
-        amb = "genome/ref.amb", 
-        ann = "genome/ref.ann", 
-        bwt = "genome/ref.bwt", 
-        pac = "genome/ref.pac", 
-        sa = "genome/ref.sa"
+        dir = ["index."  + str(i) + ".ht2" for i in range(1,9)]
+    message:
+        "indexing genome"
+    threads:
+        16
     shell:
-        "gunzip -k {input.fazip} "
-        "&& bwa index -a bwtsw {input.fazip} -p genome/ref "
-        "&& rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa" 
+        " hisat2-build -p {threads} {input.fa} index --quiet"
+        " && rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa" 
     
 
-rule mem_bwa:
-    "Aligning with BWA MEM"
+rule hisat_align:
     input:
-        index = rules.bwa_index.output,
         fastq1 = rules.fastp.output.read1,
-        fastq2 = rules.fastp.output.read2
+        fastq2 = rules.fastp.output.read2,
+        index = rules.index.output.dir
     output:
-        bam = "aligned/{sra}.bam"
+        bams  = "aligned/{sra}.bam",
+        sum   = "logs/{sra}_sum.txt",
+        met   = "logs/{sra}_met.txt"
+    message:
+        "mapping reads to genome to bam files."
     threads: 
-        32
+        16
     shell:
-        "bwa mem -t {threads} genome/ref {input.fastq1} {input.fastq2} | samtools sort -@ {threads} -o {output.bam}"
+        "hisat2 -p {threads} --summary-file {output.sum} --met-file {output.met} -x index \
+        -1 {input.fastq1} -2 {input.fastq2} | samtools view -Sb -F 4 -o {output.bams}"
 
         
 rule bamtools_filter_json:
