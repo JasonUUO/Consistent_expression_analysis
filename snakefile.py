@@ -5,12 +5,11 @@ rule all:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
         expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
-        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz",
         "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
         expand("aligned/{sra}.bam", sra=SRA),
         expand("logs/{sra}_sum.txt", sra=SRA),
         expand("logs/{sra}_met.txt", sra=SRA),
-        ["index."  + str(i) + ".ht2" for i in range(1,9)]
+        ["index."  + str(i) + ".ht2" for i in range(1,9)],
         expand("rawcounts/rawcounts.tsv",)
         expand("AML_gene_lists.csv",)
         
@@ -59,12 +58,11 @@ rule fastp:
 rule get_genome_fa:
     "Downloading Genome sequence, Mus Musculus primary assembly (GRCm39)"
     output:
-        fazip = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz",
         fa = "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa"
     shell:
         "cd genome"
         " && wget ftp://ftp.ensembl.org/pub/release-106/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz"
-        " && gunzip -k {output.fazip} "
+        " && gunzip Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz "
 
 rule index:
     input:
@@ -72,13 +70,11 @@ rule index:
     output:
         dir = ["index."  + str(i) + ".ht2" for i in range(1,9)]
     message:
-        "indexing genome"
+        "Indexing genome"
     threads:
         16
     shell:
-        " hisat2-build -p {threads} {input.fa} index --quiet"
-        " && rm genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa" 
-    
+        " hisat2-build -p {threads} {input.fa} index --quiet"    
 
 rule hisat_align:
     input:
@@ -90,7 +86,7 @@ rule hisat_align:
         sum   = "logs/{sra}_sum.txt",
         met   = "logs/{sra}_met.txt"
     message:
-        "mapping reads to genome to bam files."
+        "Alligning reads to genome to bam files."
     threads: 
         16
     shell:
