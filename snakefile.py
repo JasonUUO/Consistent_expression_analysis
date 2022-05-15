@@ -5,7 +5,7 @@ rule all:
         expand("rawQC/{sra}_{frr}_fastqc.{extension}", sra=SRA, frr=FRR,extension=["zip","html"]),
         expand("multiqc_report.html"),
         expand("trimmedreads{sra}_fastq.html", sra=SRA),
-        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
+        "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa.gz",
         "genome/Mus_musculus.GRCm39.dna_sm.primary_assembly.fa",
         expand("aligned/{sra}.bam", sra=SRA),
         expand("logs/{sra}_sum.txt", sra=SRA),
