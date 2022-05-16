@@ -128,7 +128,7 @@ rule htseq_count:
         out = "rawcounts/rawcounts.out"
         err = "rawcounts/rawcounts.err"
     shell:
-        "htseq-count {input.alignment} {input.gtf_1} -i gene_id -m union --additional-attr gene_name"
+        "htseq-count {input.alignment} {input.gtf_1} -i gene_id -m union --additional-attr gene_name -c {sra}_counts.csv"
 
 rule normalise_and_DE_analysis:
     input:
